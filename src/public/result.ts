@@ -96,6 +96,55 @@ class ResultImpl<T, E> {
       : (new ResultImpl<T, E>(['Err', error]) as Result<T, E>);
   }
 
+  /**
+    Create an instance of {@linkcode Ok} or {@linkcode Err} depending
+    on the outcome of the Promise.
+    
+    Given that Promise objects do not have any restriction on the type
+    of objects that can be thrown as errors, the type E must be of type
+    unknown. This allows you to cleanly convert a Promise to a {@linkcode Result}.
+   
+    ```ts
+    async function getUserResult(): Promise<Result<User, ApplicationError>> {
+      return Result.promise(getUser(101), (e) => {
+        if (e instanceof ApplicationError) return e
+        return ApplicationError.unknown(e)
+      });
+    }
+   
+    async function parallelizeResults(userId: string): Promise<Result<[UserProfile, Product[]], ApplicationError>> {
+      return Result.promise(Promise.all(
+        getUserProfile(userId),
+        getUserCartProducts(userId)
+      ), (e) => {
+        if (e instanceof ApplicationError) return e
+        return ApplicationError.unknown(e)
+      });
+    }
+    ```
+   */
+  static async promise<T, E>(promise: Promise<Result<T, E>>): Promise<Result<T, E>>;
+  static async promise<T, E = unknown>(
+    promise: Promise<T>,
+    mapErrFn?: (e: unknown) => E
+  ): Promise<Result<T, E>>;
+  static async promise<T, E = unknown>(
+    promise: Promise<Result<T, E> | T>,
+    mapErrFn?: (e: unknown) => E
+  ): Promise<Result<T, E>> {
+    try {
+      const value = await promise;
+
+      if (isInstance<T, E>(value)) {
+        return value;
+      } else {
+        return Result.ok(value);
+      }
+    } catch (e) {
+      return Result.err(mapErrFn ? mapErrFn(e) : e) as Result<T, E>;
+    }
+  }
+
   /** Distinguish between the {@linkcode Variant.Ok} and {@linkcode Variant.Err} {@linkcode Variant variants}. */
   get variant(): Variant {
     return this.repr[0];
@@ -193,6 +242,12 @@ class ResultImpl<T, E> {
     return this.repr[0] === 'Ok' ? this.repr[1] : elseFn(this.repr[1]);
   }
 
+  /** Method variant for {@linkcode unwrapOrElse} */
+  unwrapOrThrow(): T {
+    if (this.repr[0] === 'Ok') return this.repr[1];
+    throw this.repr[1];
+  }
+
   /** Method variant for {@linkcode toString} */
   toString(): string {
     return `${this.repr[0]}(${safeToString(this.repr[1])})`;
@@ -202,6 +257,11 @@ class ResultImpl<T, E> {
   toJSON(): ResultJSON<T, E> {
     const variant = this.repr[0];
     return variant === 'Ok' ? { variant, value: this.repr[1] } : { variant, error: this.repr[1] };
+  }
+
+  /** Method variant for {@linkcode toPromise} */
+  toPromise(): Promise<T> {
+    return this.repr[0] === 'Ok' ? Promise.resolve(this.repr[1]) : Promise.reject(this.repr[1]);
   }
 
   /** Method variant for {@linkcode equals} */
@@ -220,6 +280,8 @@ class ResultImpl<T, E> {
     return r.andThen((val) => this.map((fn) => fn(val)));
   }
 }
+
+export const promise = ResultImpl.promise;
 
 /**
   An `Ok` instance is the *successful* variant instance of the
@@ -936,6 +998,33 @@ export function unwrapOrElse<T, U, E>(
 }
 
 /**
+  Force unwrap a {@linkcode Result} object resulting in a thrown error if
+  the object is of type {@linkcode Err}.
+
+  Useful when interoperating with code that does not utilize {@linkcode Result} 
+  types. This is a convenience function to use in place of the following:
+
+  ```ts
+  result.unwrapOrElse((error) => {
+    throw error
+  })
+  ```
+
+  This method removes the alternative result type U from unwrapOrElse and allows
+  for cleaner implementations since the `throw` keyword cannot be used inside of
+  arrow functions without a body.
+  
+  @typeparam T    The value wrapped in the `Ok`.
+  @typeparam E    The value wrapped in the `Err`.
+  @param result   The `result` to unwrap if it is an `Ok`.
+  @returns        The value wrapped in `result` if it is `Ok`.
+  @throws         If called on an `Err` object with the error contained
+ */
+export function unwrapOrThrow<T, E>(result: Result<T, E>): T {
+  return result.unwrapOrThrow();
+}
+
+/**
   Create a `String` representation of a {@linkcode Result} instance.
 
   An {@linkcode Ok} instance will be `Ok(<representation of the value>)`, and an
@@ -971,6 +1060,19 @@ export const toString = <T, E>(result: Result<T, E>): string => {
  */
 export const toJSON = <T, E>(result: Result<T, E>): ResultJSON<T, E> => {
   return result.toJSON();
+};
+
+/**
+ * Create a `Promise` representation of a {@linkcode Result} instance.
+ *
+ * Use this method to integrate Result into code that does not use
+ * true-myth {@linkcode Result} objects.
+ *
+ * @param result  The value to convert to JSON
+ * @returns       The JSON representation of the `Result`
+ */
+export const toPromise = <T, E>(result: Result<T, E>): Promise<T> => {
+  return result.toPromise();
 };
 
 /**
@@ -1264,6 +1366,7 @@ export function isInstance<T, E>(item: unknown): item is Result<T, E> {
 // The public interface for the {@linkcode Result} class *as a value*: a constructor and the
 // single associated static property.
 export interface ResultConstructor {
+  promise: typeof ResultImpl.promise;
   ok: typeof ResultImpl.ok;
   err: typeof ResultImpl.err;
 }

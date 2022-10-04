@@ -65,6 +65,13 @@ describe('`Result` pure functions', () => {
     expect(ResultNS.tryOr(message)(badOperation)).toEqual(ResultNS.err(message));
   });
 
+  describe('`promise`', () => {
+    expect(ResultNS.promise(Promise.resolve(null))).resolves.toBeInstanceOf(Result);
+    expect(ResultNS.promise(Promise.resolve(null), e => e)).resolves.toBeInstanceOf(Result);
+    expect(ResultNS.promise(Promise.reject(null))).resolves.toBeInstanceOf(Result);
+    expect(ResultNS.promise(Promise.reject(null), e => e)).resolves.toBeInstanceOf(Result);
+  });
+
   test('`tryOrElse`', () => {
     function handleError<E>(e: E): E {
       return e;
@@ -374,6 +381,14 @@ describe('`Result` pure functions', () => {
     expect(actualSerializedUnitErr).toEqual(expectedSerializedUnitErr);
   });
 
+  test('`toPromise`', () => {
+    const anOk = ResultNS.ok(10);
+    expect(anOk.toPromise()).resolves.toBe(10);
+
+    const anErr = ResultNS.err(new Error('an error message'));
+    expect(anErr.toPromise()).rejects.toMatchObject({ message: 'an error message' });
+  });
+
   test('`equals`', () => {
     const a = ResultNS.ok<string, string>('a');
     const b = ResultNS.ok<string, string>('a');
@@ -467,6 +482,31 @@ describe('`Result` pure functions', () => {
     const testErr: Result<number, string> = ResultNS.err('');
 
     expect(ResultNS.isErr(testErr)).toEqual(true);
+  });
+});
+
+describe('factory methods', () => {
+  test('`promise`', () => {
+    const toError = (msg: unknown) => new Error(String(msg))
+    const e = new Error('an error message')
+
+    const anOkPromise1 = Result.promise(Promise.resolve(10));
+    expect(anOkPromise1.then(ResultNS.unwrapOrThrow)).resolves.toBe(10);
+
+    const anOkPromise2 = Result.promise(Promise.resolve(10), toError);
+    expect(anOkPromise2.then(ResultNS.unwrapOrThrow)).resolves.toBe(10);
+
+    const anOkPromise3 = Result.promise(Promise.resolve(Result.ok(10)));
+    expect(anOkPromise3.then(ResultNS.unwrapOrThrow)).resolves.toBe(10);
+
+    const anErrPromise1 = Result.promise(Promise.reject(e.message));
+    expect(anErrPromise1.then(ResultNS.unwrapOrThrow)).rejects.toMatch(e.message);
+
+    const anErrPromise2 = Result.promise(Promise.reject(e.message), toError);
+    expect(anErrPromise2.then(ResultNS.unwrapOrThrow)).rejects.toMatchObject(e);
+
+    const anErrPromise3 = Result.promise(Promise.resolve(Result.err(e)));
+    expect(anErrPromise3.then(ResultNS.unwrapOrThrow)).rejects.toMatchObject(e);
   });
 });
 
@@ -666,6 +706,13 @@ describe('`Ok` instance', () => {
     expect(theOk.unwrapOrElse(getDefault)).toBe(theValue);
   });
 
+  test('`unwrapOrThrow` method', () => {
+    const theValue = [1, 2, 3];
+    const theOk = Result.ok(theValue);
+
+    expect(theOk.unwrapOrThrow()).toBe(theValue);
+  });
+
   test('`toString` method', () => {
     const theValue = 42;
     const theOk = Result.ok(theValue);
@@ -838,6 +885,12 @@ describe('`ResultNS.Err` class', () => {
     const theReason = 'alas';
     const theErr = Result.err<number, string>(theReason);
     expect(theErr.unwrapOrElse(length)).toEqual(length(theReason));
+  });
+
+  test('`unwrapOrThrow` method', () => {
+    const theReason = 'alas';
+    const theErr = Result.err<number, string>(theReason);
+    expect(() => theErr.unwrapOrThrow()).toThrow(/alas/);
   });
 
   test('`toString` method', () => {
